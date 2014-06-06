@@ -1,0 +1,51 @@
+name:                io-streams-haproxy
+version:             1.0.0.0
+synopsis:            HAProxy protocol 1.5 support for io-streams
+
+description: HAProxy protocol version 1.5 support (see
+  <http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt>) for applications
+  using io-streams. The proxy protocol allows information about a networked
+  peer (like remote address and port) to be propagated through a forwarding
+  proxy that is configured to speak this protocol.
+
+homepage:            http://snapframework.com/
+license:             BSD3
+license-file:        LICENSE
+author:              Gregory Collins
+maintainer:          greg@gregorycollins.net
+copyright:           (c) 2014 Google, Inc. and CONTRIBUTORS
+category:            Network, IO-Streams
+build-type:          Simple
+extra-source-files:  CONTRIBUTORS
+cabal-version:       >=1.10
+Bug-Reports:         https://github.com/snapframework/io-streams-haproxy/issues
+
+library
+  hs-source-dirs:      src
+  ghc-prof-options:    -prof -auto-all
+  exposed-modules:     System.IO.Streams.Network.HAProxy
+  build-depends:       base              >= 4.4 && < 4.8,
+                       attoparsec        >= 0.7 && < 0.13,
+                       bytestring        >= 0.9 && < 0.11,
+                       io-streams        >= 1.1 && < 1.2,
+                       network           >= 2.3 && < 2.6
+  default-language:    Haskell2010
+
+test-suite testsuite
+  type:              exitcode-stdio-1.0
+  hs-source-dirs:    src test
+  Main-is:           TestSuite.hs
+  Default-language:  Haskell2010
+
+  Other-modules:     System.IO.Streams.Network.HAProxy,
+                     System.IO.Streams.Network.HAProxy.Tests
+
+  build-depends:     base              >= 4.4 && < 4.8,
+                     attoparsec        >= 0.7 && < 0.13,
+                     bytestring        >= 0.9 && < 0.11,
+                     io-streams        >= 1.1 && < 1.2,
+                     network           >= 2.3 && < 2.6,
+                     ------------------------------
+                     HUnit                      >= 1.2      && <2,
+                     test-framework             >= 0.8.0.3  && <0.9,
+                     test-framework-hunit       >= 0.2.7    && <0.4
