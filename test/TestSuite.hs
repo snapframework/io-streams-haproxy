@@ -1,4 +1,4 @@
-module TestSuite where
+module Main where
 
 import qualified System.IO.Streams.Network.HAProxy.Tests as HAProxy
 import           Test.Framework                          (defaultMain, testGroup)

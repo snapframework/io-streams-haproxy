@@ -37,6 +37,10 @@ test-suite testsuite
   Main-is:           TestSuite.hs
   Default-language:  Haskell2010
 
+  ghc-options:       -Wall -fhpc -fwarn-tabs -funbox-strict-fields -threaded
+                     -fno-warn-unused-do-bind
+  ghc-prof-options:  -prof -auto-all
+
   Other-modules:     System.IO.Streams.Network.HAProxy,
                      System.IO.Streams.Network.HAProxy.Tests
 
