@@ -30,6 +30,8 @@ tests = [ testOldHaProxy
         , testOldHaProxyFailure
         , testOldHaProxyLocal
         , testNewHaProxy
+        , testNewHaProxyTooBig
+        , testNewHaProxyLocal
         , testTrivials
         ]
 
@@ -139,6 +141,51 @@ testNewHaProxy = testCase "test/new_ha_proxy" $ do
         assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
+
+
+------------------------------------------------------------------------------
+testNewHaProxyTooBig :: Test
+testNewHaProxyTooBig = testCase "test/new_ha_proxy_too_big" $ do
+    sa <- localhost 1111
+    sb <- localhost 2222
+    let input = S.concat [ protocolHeader
+                         , "\x21\x11"    -- TCP over v4
+                         , "\x03\x0c"        -- 780: 12 bytes of address
+                                             -- (network ordered) plus 768
+                                             -- bytes of slop
+                         , "\x7f\x00\x00\x01" -- localhost
+                         , "\x7f\x00\x00\x01"
+                         , S.replicate 768 '0'
+                         , "\x27\x10" -- 10000 in network order
+                         , "\x00\x50" -- 80 in network order
+                         , "blah"     -- the rest
+                         ]
+    expectException "too big" $ runInput input sa sb action
+
+  where
+    action _ !_ !_ = return ()
+
+
+------------------------------------------------------------------------------
+testNewHaProxyLocal :: Test
+testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
+    sa <- localhost 1111
+    sb <- localhost 2222
+    let input = S.concat [ protocolHeader
+                         , "\x20\x00"    -- LOCAL UNSPEC
+                         , "\x00\x00"        -- 0 bytes of address (network ordered)
+                         , "blah"     -- the rest
+                         ]
+    runInput input sa sb action
+
+  where
+    action proxyInfo !is !_ = do
+        sa <- localhost 1111
+        sb <- localhost 2222
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
+
 
 
 ------------------------------------------------------------------------------

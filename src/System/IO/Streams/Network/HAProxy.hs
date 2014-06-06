@@ -1,7 +1,9 @@
-{-# LANGUAGE BangPatterns       #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE OverloadedStrings  #-}
-{-# LANGUAGE TupleSections      #-}
+{-# LANGUAGE BangPatterns             #-}
+{-# LANGUAGE DeriveDataTypeable       #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE Trustworthy              #-}
+{-# LANGUAGE TupleSections            #-}
 
 module System.IO.Streams.Network.HAProxy
   ( behindHAProxy
@@ -18,19 +20,22 @@ import           Control.Applicative                        ((<$>), (<|>))
 import           Control.Monad                              (void, when)
 import           Data.Attoparsec.ByteString                 (anyWord8)
 import           Data.Attoparsec.ByteString.Char8           (Parser, char, decimal, skipWhile, string, take, takeWhile1)
-import           Data.Bits                                  (unsafeShiftL, unsafeShiftR, (.&.), (.|.))
+import           Data.Bits                                  (unsafeShiftR, (.&.))
 import qualified Data.ByteString                            as S8
 import           Data.ByteString.Char8                      (ByteString)
-import qualified Data.ByteString.Char8                      as S
+import qualified Data.ByteString.Unsafe                     as S
 import           Data.Typeable                              (Typeable)
 import           Data.Word                                  (Word16, Word32, Word8)
+import           Foreign.C.Types                            (CUShort (..))
+import           Foreign.Ptr                                (castPtr)
+import           Foreign.Storable                           (peek)
 import qualified Network.Socket                             as N
-import qualified Network.Socket.ByteString                  as NB
 import           Prelude                                    hiding (take)
 import           System.IO.Streams                          (InputStream, OutputStream)
 import qualified System.IO.Streams                          as Streams
 import qualified System.IO.Streams.Attoparsec               as Streams
 import           System.IO.Streams.Network.Internal.Address (getSockAddr)
+import           System.IO.Unsafe                           (unsafePerformIO)
 ------------------------------------------------------------------------------
 
 
@@ -65,7 +70,9 @@ behindHAProxyWithAddresses
           -> OutputStream ByteString
           -> IO a)              -- ^ user function
   -> IO a
-behindHAProxyWithAddresses (origSrcAddr, origDestAddr) (is, os) m = do
+behindHAProxyWithAddresses (origSrcAddr, origDestAddr) (is0, os) m = do
+    -- 536 bytes as per spec
+    is <- Streams.throwIfProducesMoreThan 536 is0
     (!isOld, !mbOldInfo) <- Streams.parseFromStream
                               (((True,) <$> parseOldHaProxy)
                                <|> return (False, Nothing)) is
@@ -176,7 +183,7 @@ parseNewHaProxy origSrcAddr origDestAddr = do
     -- (UNIX). The addresses are exactly 108 bytes each.
     let mbProtocol = toProtocol protocol
 
-    addressLen <- n16
+    addressLen <- ntohs <$> snarf16
 
     case () of
         !_ | command == 0x0 || family == 0x0 || protocol == 0x0   -- LOCAL
@@ -191,33 +198,6 @@ parseNewHaProxy origSrcAddr origDestAddr = do
     toProtocol 2 = Just N.Datagram
     toProtocol _ = Nothing
 
-    w8 :: Parser Word32
-    w8 = fromIntegral <$> anyWord8
-
-    le32 = do
-        -- unfortunately this is the only reliable way of doing this are you on
-        -- a big endian machine? too bad! (for now)
-        b4 <- w8
-        b3 <- w8
-        b2 <- w8
-        b1 <- w8
-        return $! (b1 `unsafeShiftL` 24  .|.
-                   b2 `unsafeShiftL` 16  .|.
-                   b3 `unsafeShiftL` 8   .|.
-                   b4)
-
-    le16 :: Parser Word16
-    le16 = do
-        b2 <- w8
-        b1 <- w8
-        return $! fromIntegral $! (b1 `unsafeShiftL` 8  .|. b2)
-
-    n16 :: Parser Word16
-    n16 = do
-        b1 <- w8
-        b2 <- w8
-        return $! fromIntegral $! (b1 `unsafeShiftL` 8  .|. b2)
-
     handleLocal addressLen = do
         -- skip N bytes and return the original addresses
         when (addressLen > 500) $ fail $ "suspiciously long address "
@@ -230,10 +210,10 @@ parseNewHaProxy origSrcAddr origDestAddr = do
                                          ++ show addressLen
                                          ++ " for IPv4"
         let nskip = addressLen - 12
-        srcAddr  <- le32
-        destAddr <- le32
-        srcPort  <- le16
-        destPort <- le16
+        srcAddr  <- snarf32
+        destAddr <- snarf32
+        srcPort  <- snarf16
+        destPort <- snarf16
         void $ take $ fromIntegral nskip
 
         -- Note: we actually want the brain-dead constructors here
@@ -249,18 +229,19 @@ parseNewHaProxy origSrcAddr origDestAddr = do
                                          ++ show addressLen
                                          ++ " for IPv6"
         let nskip = addressLen - 36
-        s1 <- le32
-        s2 <- le32
-        s3 <- le32
-        s4 <- le32
+        s1 <- snarf32
+        s2 <- snarf32
+        s3 <- snarf32
+        s4 <- snarf32
 
-        d1 <- le32
-        d2 <- le32
-        d3 <- le32
-        d4 <- le32
+        d1 <- snarf32
+        d2 <- snarf32
+        d3 <- snarf32
+        d4 <- snarf32
 
-        sp <- le16
-        dp <- le16
+        sp <- snarf16
+        dp <- snarf16
+
         void $ take $ fromIntegral nskip
 
         return $! ( N.SockAddrInet6 (N.PortNum sp) flow (s1, s2, s3, s4) scopeId
@@ -269,3 +250,21 @@ parseNewHaProxy origSrcAddr origDestAddr = do
 
     handleUnix addressLen = do
         undefined
+
+
+foreign import ccall unsafe "iostreams_ntohs" c_ntohs :: CUShort -> CUShort
+
+ntohs :: Word16 -> Word16
+ntohs = fromIntegral . c_ntohs . fromIntegral
+
+
+snarf32 :: Parser Word32
+snarf32 = do
+    s <- take 4
+    return $! unsafePerformIO $! S.unsafeUseAsCString s $ peek . castPtr
+
+
+snarf16 :: Parser Word16
+snarf16 = do
+    s <- take 2
+    return $! unsafePerformIO $! S.unsafeUseAsCString s $ peek . castPtr
