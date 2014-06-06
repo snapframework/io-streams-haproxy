@@ -3,12 +3,8 @@
 {-# LANGUAGE OverloadedStrings  #-}
 
 module System.IO.Streams.Network.Internal.Address
-  ( getHostAddr
-  , getHostAddrImpl
-  , getSockAddr
+  ( getSockAddr
   , getSockAddrImpl
-  , getAddress
-  , getAddressImpl
   , AddressNotSupportedException(..)
   ) where
 
@@ -30,38 +26,6 @@ instance Show AddressNotSupportedException where
     show (AddressNotSupportedException x) = "Address not supported: " ++ x
 
 instance Exception AddressNotSupportedException
-
-------------------------------------------------------------------------------
-getHostAddr :: SockAddr -> IO String
-getHostAddr = getHostAddrImpl getNameInfo
-
-
-------------------------------------------------------------------------------
-getHostAddrImpl :: ([NameInfoFlag]
-                    -> Bool
-                    -> Bool
-                    -> SockAddr
-                    -> IO (Maybe HostName, Maybe ServiceName))
-                -> SockAddr
-                -> IO String
-getHostAddrImpl !_getNameInfo addr =
-    (fromMaybe "" . fst) `liftM` _getNameInfo [NI_NUMERICHOST] True False addr
-
-
-------------------------------------------------------------------------------
-getAddress :: SockAddr -> IO (Int, ByteString)
-getAddress = getAddressImpl getHostAddr
-
-
-------------------------------------------------------------------------------
-getAddressImpl :: (SockAddr -> IO String) -> SockAddr -> IO (Int, ByteString)
-getAddressImpl !_getHostAddr addr = do
-    port <- case addr of
-              SockAddrInet p _ -> return p
-              SockAddrInet6 p _ _ _ -> return p
-              x -> throwIO $ AddressNotSupportedException $ show x
-    host <- _getHostAddr addr
-    return (fromIntegral port, S.pack host)
 
 ------------------------------------------------------------------------------
 getSockAddr :: Int
