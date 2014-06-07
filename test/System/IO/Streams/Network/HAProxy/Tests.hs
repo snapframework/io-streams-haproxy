@@ -34,11 +34,16 @@ tests = [ testOldHaProxy
         , testOldHaProxy6
         , testOldHaProxyFailure
         , testOldHaProxyLocal
+        , testOldHaProxyLocal6
         , testOldHaProxyBadAddress
         , testBlackBox
         , testBlackBoxLocal
         , testNewHaProxy
+        , testNewHaProxyUnix
+        , testNewHaProxy6
         , testNewHaProxyTooBig
+        , testNewHaProxyTooSmall
+        , testNewHaProxyBadVersion
         , testNewHaProxyLocal
         , testGetSockAddr
         , testTrivials
@@ -54,7 +59,7 @@ runInput :: ByteString
 runInput input sa sb action = do
     is <- Streams.fromList [input]
     (os, _) <- Streams.listOutputStream
-    HA.behindHAProxyWithAddresses (sa, sb) (is, os) action
+    HA.behindHAProxyWithAddresses (sa, sb, N.Stream) (is, os) action
 
 
 ------------------------------------------------------------------------------
@@ -128,6 +133,7 @@ testBlackBox = testCase "test/blackbox" $
                                             writeChan chan False
           Right !_ -> writeChan chan True
 
+
 ------------------------------------------------------------------------------
 testBlackBoxLocal :: Test
 testBlackBoxLocal = testCase "test/blackbox_local" $
@@ -136,11 +142,16 @@ testBlackBoxLocal = testCase "test/blackbox_local" $
     action chan proxyInfo !is !_ = do
         let q = HA.getSourceAddr proxyInfo `seq` HA.getDestAddr proxyInfo
                                            `seq` ()
-        x  <- q `seq` E.try (Streams.toList is >>= assertEqual "rest" ["blah"])
+        x  <- q `seq` E.try $ go is proxyInfo
         case x of
           Left (e :: E.SomeException) -> do hPutStrLn stderr $ show e
                                             writeChan chan False
           Right !_ -> writeChan chan True
+    go is proxyInfo = do
+        Streams.toList is >>= assertEqual "rest" ["blah"]
+        assertEqual "family" N.AF_INET $ HA.getFamily proxyInfo
+        assertEqual "type" N.Stream $ HA.getSocketType proxyInfo
+
 
 ------------------------------------------------------------------------------
 testOldHaProxy :: Test
@@ -155,6 +166,8 @@ testOldHaProxy = testCase "test/old_ha_proxy" $ do
         sb <- localhost 80
         assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
 
 
@@ -171,6 +184,8 @@ testOldHaProxy6 = testCase "test/old_ha_proxy6" $ do
         sb <- localhost6 80
         assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET6 $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
 
 
@@ -187,6 +202,26 @@ testOldHaProxyLocal = testCase "test/old_ha_proxy_local" $ do
         sb <- localhost 2222
         assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
+
+
+------------------------------------------------------------------------------
+testOldHaProxyLocal6 :: Test
+testOldHaProxyLocal6 = testCase "test/old_ha_proxy_local6" $ do
+    sa <- localhost6 1111
+    sb <- localhost6 2222
+    runInput "PROXY UNKNOWN\r\nblah" sa sb action
+
+  where
+    action proxyInfo !is !_ = do
+        sa <- localhost6 1111
+        sb <- localhost6 2222
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET6 $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
 
 
@@ -251,7 +286,172 @@ testNewHaProxy = testCase "test/new_ha_proxy" $ do
         sb <- localhost 80
         assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
+
+
+------------------------------------------------------------------------------
+unixPath :: ByteString -> ByteString
+unixPath s = S.append s (S.replicate (108 - S.length s) '\x00')
+
+
+------------------------------------------------------------------------------
+unixSock :: ByteString -> N.SockAddr
+unixSock = N.SockAddrUnix . S.unpack
+
+
+------------------------------------------------------------------------------
+testNewHaProxyUnix :: Test
+testNewHaProxyUnix = testCase "test/new_ha_proxy_unix" $ do
+    sa <- localhost 1111
+    sb <- localhost 2222
+    let input = S.concat [ protocolHeader
+                         , "\x21\x31"    -- unix stream
+                         , "\x00\xd8"    -- 216 bytes
+                         , unixPath "/foo"
+                         , unixPath "/bar"
+                         , "blah"     -- the rest
+                         ]
+    runInput input sa sb action
+
+    let input2 = S.concat [ protocolHeader
+                          , "\x21\x32"    -- unix datagram
+                          , "\x00\xd8"    -- 216 bytes
+                          , unixPath "/foo"
+                          , unixPath "/bar"
+                          , "blah"     -- the rest
+                          ]
+    runInput input2 sa sb action2
+  where
+    action proxyInfo !is !_ = do
+        let sa = unixSock "/foo"
+        let sb = unixSock "/bar"
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_UNIX $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
+
+    action2 proxyInfo !is !_ = do
+        let sa = unixSock "/foo"
+        let sb = unixSock "/bar"
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_UNIX $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Datagram $ HA.getSocketType proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
+
+------------------------------------------------------------------------------
+testNewHaProxy6 :: Test
+testNewHaProxy6 = testCase "test/new_ha_proxy_6" $ do
+    sa <- localhost6 1111
+    sb <- localhost6 2222
+    let input = S.concat [ protocolHeader
+                         , "\x21\x21"    -- TCP over v6
+                         , "\x00\x24"        -- 36 bytes of address (network ordered)
+                         , lhBinary
+                         , lhBinary
+                         , "\x27\x10" -- 10000 in network order
+                         , "\x00\x50" -- 80 in network order
+                         , "blah"     -- the rest
+                         ]
+    runInput input sa sb action
+
+  where
+    lhBinary = S.concat [ S.replicate 15 '\x00', S.singleton '\x01' ]
+
+    action proxyInfo !is !_ = do
+        sa <- localhost6 10000
+        sb <- localhost6 80
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET6 $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
+
+
+------------------------------------------------------------------------------
+testNewHaProxyBadVersion :: Test
+testNewHaProxyBadVersion = testCase "test/new_ha_proxy_bad_version" $ do
+    sa <- localhost 1111
+    sb <- localhost 2222
+    let input = S.concat [ protocolHeader
+                         , "\x31\x11"    -- TCP over v4, bad version
+                         , "\x00\x0c"        -- 12 bytes of address (network ordered)
+                         , "\x7f\x00\x00\x01" -- localhost
+                         , "\x7f\x00\x00\x01"
+                         , "\x27\x10" -- 10000 in network order
+                         , "\x00\x50" -- 80 in network order
+                         , "blah"     -- the rest
+                         ]
+    expectException "bad version" $ runInput input sa sb action
+
+    let input2 = S.concat [ protocolHeader
+                          , "\x2F\x11"    -- TCP over v4, bad command
+                          , "\x00\x0c"        -- 12 bytes of address (network ordered)
+                          , "\x7f\x00\x00\x01" -- localhost
+                          , "\x7f\x00\x00\x01"
+                          , "\x27\x10" -- 10000 in network order
+                          , "\x00\x50" -- 80 in network order
+                          , "blah"     -- the rest
+                          ]
+    expectException "bad version" $ runInput input2 sa sb action
+
+    let input3 = S.concat [ protocolHeader
+                          , "\x21\x41"    -- bad family
+                          , "\x00\x0c"        -- 12 bytes of address (network ordered)
+                          , "\x7f\x00\x00\x01" -- localhost
+                          , "\x7f\x00\x00\x01"
+                          , "\x27\x10" -- 10000 in network order
+                          , "\x00\x50" -- 80 in network order
+                          , "blah"     -- the rest
+                          ]
+    expectException "bad family" $ runInput input3 sa sb action
+
+    let input4 = S.concat [ protocolHeader
+                          , "\x21\x14"    -- bad family
+                          , "\x00\x0c"        -- 12 bytes of address (network ordered)
+                          , "\x7f\x00\x00\x01" -- localhost
+                          , "\x7f\x00\x00\x01"
+                          , "\x27\x10" -- 10000 in network order
+                          , "\x00\x50" -- 80 in network order
+                          , "blah"     -- the rest
+                          ]
+    expectException "bad type" $ runInput input4 sa sb action
+  where
+    action _ !_ !_ = return ()
+
+
+------------------------------------------------------------------------------
+testNewHaProxyTooSmall :: Test
+testNewHaProxyTooSmall = testCase "test/new_ha_proxy_too_small" $ do
+    sa <- localhost 1111
+    sb <- localhost 2222
+    let input = S.concat [ protocolHeader
+                         , "\x21\x11"    -- TCP over v4
+                         , "\x00\x02"        -- 2 bytes
+                         , "\x00\x00"
+                         , "blah"     -- the rest
+                         ]
+    expectException "too small" $ runInput input sa sb action
+    let input2 = S.concat [ protocolHeader
+                          , "\x21\x21"    -- TCP over v6
+                          , "\x00\x02"        -- 2 bytes
+                          , "\x00\x00"
+                          , "blah"     -- the rest
+                          ]
+    expectException "too small" $ runInput input2 sa sb action
+
+    let input3 = S.concat [ protocolHeader
+                          , "\x21\x31"    -- unix
+                          , "\x00\x02"        -- 2 bytes
+                          , "\x00\x00"
+                          , "blah"     -- the rest
+                          ]
+    expectException "too small" $ runInput input3 sa sb action
+  where
+    action _ !_ !_ = return ()
 
 
 ------------------------------------------------------------------------------
@@ -273,6 +473,20 @@ testNewHaProxyTooBig = testCase "test/new_ha_proxy_too_big" $ do
                          ]
     expectException "too big" $ runInput input sa sb action
 
+    let input2 = S.concat [ protocolHeader
+                          , "\x21\x00"    -- TCP over v4
+                          , "\x03\x0c"        -- 780: 12 bytes of address
+                                              -- (network ordered) plus 768
+                                              -- bytes of slop
+                         , "\x7f\x00\x00\x01" -- localhost
+                         , "\x7f\x00\x00\x01"
+                         , S.replicate 768 '0'
+                         , "\x27\x10" -- 10000 in network order
+                         , "\x00\x50" -- 80 in network order
+                         , "blah"     -- the rest
+                         ]
+    expectException "too big" $ runInput input2 sa sb action
+
   where
     action _ !_ !_ = return ()
 
@@ -289,14 +503,33 @@ testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
                          ]
     runInput input sa sb action
 
+    let ua = unixSock "/foo"
+    let ub = unixSock "/bar"
+
+    let input2 = S.concat [ protocolHeader
+                          , "\x20\x00"    -- LOCAL UNSPEC
+                          , "\x00\x00"        -- 0 bytes of address (network ordered)
+                          , "blah"     -- the rest
+                          ]
+    runInput input2 ua ub action2
   where
     action proxyInfo !is !_ = do
         sa <- localhost 1111
         sb <- localhost 2222
         assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_INET $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
 
+    action2 proxyInfo !is !_ = do
+        let sa = unixSock "/foo"
+        let sb = unixSock "/bar"
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        assertEqual "family" N.AF_UNIX $ HA.getFamily proxyInfo
+        assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
 
 ------------------------------------------------------------------------------
 testGetSockAddr :: Test
@@ -318,8 +551,7 @@ testGetSockAddr = testCase "test/address/getSockAddr" $ do
 ------------------------------------------------------------------------------
 testTrivials :: Test
 testTrivials = testCase "test/trivials" $ do
-    coverTypeableInstance $ HA.makeProxyInfo undefined undefined
-    coverShowInstance $ HA.makeProxyInfo undefined undefined
+    coverShowInstance $ HA.makeProxyInfo undefined undefined undefined undefined
     coverTypeableInstance $ AddressNotSupportedException undefined
     coverShowInstance $ AddressNotSupportedException "ok"
 
