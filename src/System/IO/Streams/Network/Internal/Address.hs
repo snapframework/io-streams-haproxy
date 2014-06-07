@@ -38,22 +38,15 @@ getSockAddr = getSockAddrImpl getAddrInfo
 getSockAddrImpl
   :: (Maybe AddrInfo -> Maybe String -> Maybe String -> IO [AddrInfo])
      -> Int -> ByteString -> IO (Family, SockAddr)
-getSockAddrImpl !_getAddrInfo p s =
-    case () of
-      !_ | s == "*" -> return $! ( AF_INET
-                                 , SockAddrInet (fromIntegral p) iNADDR_ANY
-                                 )
-         | s == "::" -> return $! ( AF_INET6
-                                  , SockAddrInet6 (fromIntegral p) 0 iN6ADDR_ANY 0
-                                  )
-         | otherwise -> do ais <- _getAddrInfo (Just hints) (Just $ S.unpack s)
-                                               (Just $ show p)
-                           if null ais
-                             then throwIO $ AddressNotSupportedException $ show s
-                             else do
-                               let ai = head ais
-                               let fm = addrFamily ai
-                               let sa = addrAddress ai
-                               return (fm, sa)
+getSockAddrImpl !_getAddrInfo p s = do
+    ais <- _getAddrInfo (Just hints) (Just $ S.unpack s)
+                        (Just $ show p)
+    if null ais
+      then throwIO $ AddressNotSupportedException $ show s
+      else do
+        let !ai = head ais
+        let !fm = addrFamily ai
+        let !sa = addrAddress ai
+        return (fm, sa)
   where
     hints = defaultHints { addrFlags = [AI_NUMERICSERV] }

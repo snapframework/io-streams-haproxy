@@ -1,22 +1,27 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module System.IO.Streams.Network.HAProxy.Tests (tests) where
 
 ------------------------------------------------------------------------------
 import           Control.Applicative                        ((<$>))
+import           Control.Concurrent
 import qualified Control.Exception                          as E
+import           Control.Monad                              (forever)
 import           Control.Monad.IO.Class                     (MonadIO, liftIO)
 import qualified Data.ByteString                            as S8
 import           Data.ByteString.Char8                      (ByteString)
 import qualified Data.ByteString.Char8                      as S
 import           Data.Typeable
 import qualified Network.Socket                             as N
+import           System.IO                                  (hPutStrLn, stderr)
 import           System.IO.Streams                          (InputStream, OutputStream)
 import qualified System.IO.Streams                          as Streams
 import qualified System.IO.Streams.Network.HAProxy          as HA
-import           System.IO.Streams.Network.Internal.Address (getSockAddr)
+import           System.IO.Streams.Network.Internal.Address (AddressNotSupportedException (..), getSockAddr, getSockAddrImpl)
+import           System.Timeout                             (timeout)
 import           Test.Framework
 import           Test.Framework.Providers.HUnit
 import           Test.HUnit                                 hiding (Test)
@@ -29,9 +34,13 @@ tests = [ testOldHaProxy
         , testOldHaProxy6
         , testOldHaProxyFailure
         , testOldHaProxyLocal
+        , testOldHaProxyBadAddress
+        , testBlackBox
+        , testBlackBoxLocal
         , testNewHaProxy
         , testNewHaProxyTooBig
         , testNewHaProxyLocal
+        , testGetSockAddr
         , testTrivials
         ]
 
@@ -47,6 +56,91 @@ runInput input sa sb action = do
     (os, _) <- Streams.listOutputStream
     HA.behindHAProxyWithAddresses (sa, sb) (is, os) action
 
+
+------------------------------------------------------------------------------
+blackbox :: (Chan Bool
+             -> HA.ProxyInfo
+             -> InputStream ByteString
+             -> OutputStream ByteString
+             -> IO ())
+         -> ByteString
+         -> IO ()
+blackbox action input = withTimeout 10 $ do
+    chan <- newChan
+    E.bracket (startServer chan) (killThread . fst) client
+    readChan chan >>= assertBool "success"
+  where
+    client (_, port) = do
+        (family, addr) <- getSockAddr port "127.0.0.1"
+        E.bracket (N.socket family N.Stream 0) N.close $ \sock -> do
+            N.connect sock addr
+            (_, os) <- Streams.socketToStreams sock
+            threadDelay 10000
+            Streams.write (Just input) os
+            Streams.write Nothing os
+            threadDelay 10000
+
+    withTimeout n m = timeout (n * 1000000) m >>= maybe (fail "timeout") return
+
+    startServer :: Chan Bool -> IO (ThreadId, Int)
+    startServer = E.bracketOnError getSock N.close . forkServer
+
+    getSock = do
+        (family, addr) <- getSockAddr (fromIntegral N.aNY_PORT) "127.0.0.1"
+        sock           <- N.socket family N.Stream 0
+        N.setSocketOption sock N.ReuseAddr 1
+        N.setSocketOption sock N.NoDelay 1
+        N.bindSocket sock addr
+        N.listen sock 150
+        return $! sock
+
+    forkServer chan sock = do
+        port <- fromIntegral <$> N.socketPort sock
+        tid  <- E.mask_ $ forkIOWithUnmask $ server chan sock
+        return (tid, port)
+
+    server :: Chan Bool -> N.Socket -> (forall z. IO z -> IO z) -> IO ()
+    server chan boundSocket restore = loop `E.finally` N.close boundSocket
+      where
+        loop = forever $
+               E.bracketOnError (restore $ N.accept boundSocket)
+                                (N.close . fst)
+                                (\(sock, _) ->
+                                   forkIOWithUnmask
+                                     $ \r -> flip E.finally (N.close sock)
+                                       $ r $ HA.behindHAProxy sock (action chan))
+
+
+------------------------------------------------------------------------------
+testBlackBox :: Test
+testBlackBox = testCase "test/blackbox" $
+               blackbox action
+                        "PROXY TCP4 127.0.0.1 127.0.0.1 10000 80\r\nblah"
+   where
+    action chan proxyInfo !is !_ = do
+        sa <- localhost 10000
+        sb <- localhost 80
+        x  <- E.try $ do assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+                         assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+                         Streams.toList is >>= assertEqual "rest" ["blah"]
+        case x of
+          Left (e :: E.SomeException) -> do hPutStrLn stderr $ show e
+                                            writeChan chan False
+          Right !_ -> writeChan chan True
+
+------------------------------------------------------------------------------
+testBlackBoxLocal :: Test
+testBlackBoxLocal = testCase "test/blackbox_local" $
+                    blackbox action "PROXY UNKNOWN\r\nblah"
+  where
+    action chan proxyInfo !is !_ = do
+        let q = HA.getSourceAddr proxyInfo `seq` HA.getDestAddr proxyInfo
+                                           `seq` ()
+        x  <- q `seq` E.try (Streams.toList is >>= assertEqual "rest" ["blah"])
+        case x of
+          Left (e :: E.SomeException) -> do hPutStrLn stderr $ show e
+                                            writeChan chan False
+          Right !_ -> writeChan chan True
 
 ------------------------------------------------------------------------------
 testOldHaProxy :: Test
@@ -109,6 +203,23 @@ testOldHaProxyFailure = testCase "test/old_ha_proxy_failure" $ do
        $ runInput "PROXY TCP4 127.0.0.1 127.0.0.1 xxx yyy\r\nblah" sa sb action
   where
     action _ _ _ = return ()
+
+
+------------------------------------------------------------------------------
+testOldHaProxyBadAddress :: Test
+testOldHaProxyBadAddress = testCase "test/old_ha_proxy_bad_address" $ do
+    sa <- localhost 1111
+    sb <- localhost 2222
+    expectException "bad address" $
+      runInput "PROXY TCP4 @~!@#$%^ (*^%$ 10000 80\r\nblah" sa sb action
+
+  where
+    action proxyInfo !is !_ = do
+        sa <- localhost 10000
+        sb <- localhost 80
+        assertEqual "src addr" sa $ HA.getSourceAddr proxyInfo
+        assertEqual "dest addr" sb $ HA.getDestAddr proxyInfo
+        Streams.toList is >>= assertEqual "rest" ["blah"]
 
 
 ------------------------------------------------------------------------------
@@ -187,12 +298,30 @@ testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
         Streams.toList is >>= assertEqual "rest" ["blah"]
 
 
+------------------------------------------------------------------------------
+testGetSockAddr :: Test
+testGetSockAddr = testCase "test/address/getSockAddr" $ do
+    (f1, a1) <- getSockAddr 10 "127.0.0.1"
+    x1 <- localhost 10
+    assertEqual "f1" f1 N.AF_INET
+    assertEqual "x1" x1 a1
+
+    (f2, a2) <- getSockAddr 10 "::1"
+    x2 <- localhost6 10
+    assertEqual "f2" f2 N.AF_INET6
+    assertEqual "x2" x2 a2
+
+    expectException "empty result" $
+      getSockAddrImpl (\_ _ _ -> return []) 10 "foo"
+
 
 ------------------------------------------------------------------------------
 testTrivials :: Test
 testTrivials = testCase "test/trivials" $ do
     coverTypeableInstance $ HA.makeProxyInfo undefined undefined
     coverShowInstance $ HA.makeProxyInfo undefined undefined
+    coverTypeableInstance $ AddressNotSupportedException undefined
+    coverShowInstance $ AddressNotSupportedException "ok"
 
 
 ------------------------------------------------------------------------------
@@ -231,6 +360,6 @@ eatException a = (a >> return ()) `E.catch` handler
 coverShowInstance :: (MonadIO m, Show a) => a -> m ()
 coverShowInstance x = liftIO (a >> b >> c)
   where
-    a = eatException $ E.evaluate $ showsPrec 0 x ""
-    b = eatException $ E.evaluate $ show x
-    c = eatException $ E.evaluate $ showList [x] ""
+    a = eatException $ E.evaluate $ length $ showsPrec 0 x ""
+    b = eatException $ E.evaluate $ length $ show x
+    c = eatException $ E.evaluate $ length $ showList [x] ""
