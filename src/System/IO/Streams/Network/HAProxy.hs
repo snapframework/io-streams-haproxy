@@ -5,9 +5,26 @@
 {-# LANGUAGE Trustworthy              #-}
 {-# LANGUAGE TupleSections            #-}
 
+{-|
+
+HAProxy proxying protocol support (see
+<http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt>) for applications
+using io-streams. The proxy protocol allows information about a networked peer
+(like remote address and port) to be propagated through a forwarding proxy that
+is configured to speak this protocol.
+
+This approach is safer than other alternatives like injecting a special HTTP
+header (like "X-Forwarded-For") because the data is sent out of band, requests
+without the proxy header fail, and proxy data cannot be spoofed by the client.
+
+-}
+
 module System.IO.Streams.Network.HAProxy
-  ( behindHAProxy
+  (
+  -- * Proxying requests.
+    behindHAProxy
   , behindHAProxyWithAddresses
+  -- * Information about proxied requests.
   , ProxyInfo
   , makeProxyInfo
   , getSourceAddr
@@ -44,6 +61,10 @@ import           System.IO.Unsafe                           (unsafePerformIO)
 -- | Parses the proxy headers emitted by HAProxy and runs a user action with
 -- the origin/destination socket addresses provided by HAProxy. Will throw a
 -- 'Sockets.ParseException' if the protocol header cannot be parsed properly.
+--
+-- We support version 1.5 of the protocol (both the "old" text protocol and the
+-- "new" binary protocol.). Typed data fields after the addresses are not (yet)
+-- supported.
 --
 behindHAProxy :: N.Socket         -- ^ A socket you've just accepted
               -> (ProxyInfo
@@ -96,6 +117,7 @@ behindHAProxyWithAddresses (origSrcAddr, origDestAddr, origSockType) (is0, os) m
 
 
 ------------------------------------------------------------------------------
+-- | Stores information about the proxied request.
 data ProxyInfo = ProxyInfo {
       _sourceAddr :: N.SockAddr
     , _destAddr   :: N.SockAddr
@@ -105,27 +127,39 @@ data ProxyInfo = ProxyInfo {
 
 
 ------------------------------------------------------------------------------
+-- | Gets the 'N.Family' of the proxied request (i.e. IPv4/IPv6/Unix domain
+-- sockets).
 getFamily :: ProxyInfo -> N.Family
 getFamily p = _family p
 
 
 ------------------------------------------------------------------------------
+-- | Gets the 'N.SocketType' of the proxied request (UDP/TCP).
 getSocketType :: ProxyInfo -> N.SocketType
 getSocketType p = _sockType p
 
 
 ------------------------------------------------------------------------------
+-- | Gets the network address of the source node for this request (i.e. the
+-- client).
 getSourceAddr :: ProxyInfo -> N.SockAddr
 getSourceAddr p = _sourceAddr p
 
 
 ------------------------------------------------------------------------------
+-- | Gets the network address of the destination node for this request (i.e. the
+-- client).
 getDestAddr :: ProxyInfo -> N.SockAddr
 getDestAddr p = _destAddr p
 
 
 ------------------------------------------------------------------------------
-makeProxyInfo :: N.SockAddr -> N.SockAddr -> N.Family -> N.SocketType -> ProxyInfo
+-- | Makes a 'ProxyInfo' object.
+makeProxyInfo :: N.SockAddr      -- ^ the source address
+              -> N.SockAddr      -- ^ the destination address
+              -> N.Family        -- ^ the socket family
+              -> N.SocketType    -- ^ the socket type
+              -> ProxyInfo
 makeProxyInfo srcAddr destAddr f st = ProxyInfo srcAddr destAddr f st
 
 
