@@ -23,9 +23,11 @@ module System.IO.Streams.Network.HAProxy
   (
   -- * Proxying requests.
     behindHAProxy
-  , behindHAProxyWithAddresses
+  , behindHAProxyWithLocalInfo
+  , decodeHAProxyHeaders
   -- * Information about proxied requests.
   , ProxyInfo
+  , socketToProxyInfo
   , makeProxyInfo
   , getSourceAddr
   , getDestAddr
@@ -58,6 +60,16 @@ import           System.IO.Unsafe                           (unsafePerformIO)
 
 
 ------------------------------------------------------------------------------
+-- | Make a 'ProxyInfo' from a connected socket.
+socketToProxyInfo :: N.Socket -> IO ProxyInfo
+socketToProxyInfo s = do
+    sa <- N.getPeerName s
+    da <- N.getSocketName s
+    let (N.MkSocket _ _ !sty _ _) = s
+    return $! makeProxyInfo sa da (addrFamily sa) sty
+
+
+------------------------------------------------------------------------------
 -- | Parses the proxy headers emitted by HAProxy and runs a user action with
 -- the origin/destination socket addresses provided by HAProxy. Will throw a
 -- 'Sockets.ParseException' if the protocol header cannot be parsed properly.
@@ -73,11 +85,9 @@ behindHAProxy :: N.Socket         -- ^ A socket you've just accepted
                   -> IO a)
               -> IO a
 behindHAProxy socket m = do
-    sockets      <- Streams.socketToStreams socket
-    origSrcAddr  <- N.getPeerName socket
-    origDestAddr <- N.getSocketName socket
-    let (N.MkSocket _ _ !origSockType _ _) = socket
-    behindHAProxyWithAddresses (origSrcAddr, origDestAddr, origSockType) sockets m
+    pinfo    <- socketToProxyInfo socket
+    sockets  <- Streams.socketToStreams socket
+    behindHAProxyWithLocalInfo pinfo sockets m
 
 
 ------------------------------------------------------------------------------
@@ -85,35 +95,35 @@ behindHAProxy socket m = do
 -- streams to be passed in instead of created based on an input 'Socket'.
 -- Useful for unit tests.
 --
-behindHAProxyWithAddresses
-  :: (N.SockAddr, N.SockAddr, N.SocketType)     -- ^ source and destination addresses
+behindHAProxyWithLocalInfo
+  :: ProxyInfo                                          -- ^ local socket info
   -> (InputStream ByteString, OutputStream ByteString)  -- ^ socket streams
   -> (ProxyInfo
           -> InputStream ByteString
           -> OutputStream ByteString
           -> IO a)              -- ^ user function
   -> IO a
-behindHAProxyWithAddresses (origSrcAddr, origDestAddr, origSockType) (is0, os) m = do
+behindHAProxyWithLocalInfo localProxyInfo (is, os) m = do
+    proxyInfo <- decodeHAProxyHeaders localProxyInfo is
+    m proxyInfo is os
+
+
+------------------------------------------------------------------------------
+decodeHAProxyHeaders :: ProxyInfo -> (InputStream ByteString) -> IO ProxyInfo
+decodeHAProxyHeaders localProxyInfo is0 = do
     -- 536 bytes as per spec
-    let origFamily = addrFamily origSrcAddr
     is <- Streams.throwIfProducesMoreThan 536 is0
     (!isOld, !mbOldInfo) <- Streams.parseFromStream
                               (((True,) <$> parseOldHaProxy)
                                <|> return (False, Nothing)) is
-    proxyInfo <-
-     if isOld
-       then maybe (return $! makeProxyInfo origSrcAddr origDestAddr origFamily
-                                           origSockType)
-                  (\(srcAddr, srcPort, destAddr, destPort, f) -> do
-                      (_, s) <- getSockAddr srcPort srcAddr
-                      (_, d) <- getSockAddr destPort destAddr
-                      return $! makeProxyInfo s d f origSockType)
-                  mbOldInfo
-       else do
-           (s, d, f, st) <- Streams.parseFromStream
-                              (parseNewHaProxy origSrcAddr origDestAddr origSockType) is
-           return $! makeProxyInfo s d f st
-    m proxyInfo is os
+    if isOld
+      then maybe (return localProxyInfo)
+                 (\(srcAddr, srcPort, destAddr, destPort, f) -> do
+                     (_, s) <- getSockAddr srcPort srcAddr
+                     (_, d) <- getSockAddr destPort destAddr
+                     return $! makeProxyInfo s d f $ getSocketType localProxyInfo)
+                 mbOldInfo
+      else Streams.parseFromStream (parseNewHaProxy localProxyInfo) is
 
 
 ------------------------------------------------------------------------------
@@ -198,11 +208,8 @@ protocolHeader = S8.pack [ 0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D
 
 
 ------------------------------------------------------------------------------
-parseNewHaProxy :: N.SockAddr
-                -> N.SockAddr
-                -> N.SocketType
-                -> Parser (N.SockAddr, N.SockAddr, N.Family, N.SocketType)
-parseNewHaProxy origSrcAddr origDestAddr origSockType = do
+parseNewHaProxy :: ProxyInfo -> Parser ProxyInfo
+parseNewHaProxy localProxyInfo = do
     string protocolHeader
 
     versionAndCommand <- anyWord8
@@ -257,8 +264,7 @@ parseNewHaProxy origSrcAddr origDestAddr origSockType = do
         when (addressLen > 500) $ fail $ "suspiciously long address "
                                           ++ show addressLen
         void $ take (fromIntegral addressLen)
-        return $! ( origSrcAddr, origDestAddr, addrFamily origSrcAddr
-                  , origSockType )
+        return localProxyInfo
 
     handleIPv4 addressLen socketType = do
         when (addressLen < 12) $ fail $ "bad address length "
@@ -272,11 +278,9 @@ parseNewHaProxy origSrcAddr origDestAddr origSockType = do
         void $ take $ fromIntegral nskip
 
         -- Note: we actually want the brain-dead constructors here
-        return $! ( N.SockAddrInet (N.PortNum srcPort) srcAddr
-                  , N.SockAddrInet (N.PortNum destPort) destAddr
-                  , N.AF_INET
-                  , socketType
-                  )
+        let sa = N.SockAddrInet (N.PortNum srcPort) srcAddr
+        let sb = N.SockAddrInet (N.PortNum destPort) destAddr
+        return $! makeProxyInfo sa sb (addrFamily sa) socketType
 
     handleIPv6 addressLen socketType = do
         let scopeId = 0   -- means "reserved", kludge alert!
@@ -301,11 +305,10 @@ parseNewHaProxy origSrcAddr origDestAddr origSockType = do
 
         void $ take $ fromIntegral nskip
 
-        return $! ( N.SockAddrInet6 (N.PortNum sp) flow (s1, s2, s3, s4) scopeId
-                  , N.SockAddrInet6 (N.PortNum dp) flow (d1, d2, d3, d4) scopeId
-                  , N.AF_INET6
-                  , socketType
-                  )
+        let sa = N.SockAddrInet6 (N.PortNum sp) flow (s1, s2, s3, s4) scopeId
+        let sb = N.SockAddrInet6 (N.PortNum dp) flow (d1, d2, d3, d4) scopeId
+
+        return $! makeProxyInfo sa sb (addrFamily sa) socketType
 
     handleUnix addressLen socketType = do
         when (addressLen < 216) $ fail $ "bad address length "
@@ -314,11 +317,9 @@ parseNewHaProxy origSrcAddr origDestAddr origSockType = do
         addr1 <- take 108
         addr2 <- take 108
         void $ take $ fromIntegral $ addressLen - 216
-        return $! ( N.SockAddrUnix (toUnixPath addr1)
-                  , N.SockAddrUnix (toUnixPath addr2)
-                  , N.AF_UNIX
-                  , socketType
-                  )
+        let sa = N.SockAddrUnix (toUnixPath addr1)
+        let sb = N.SockAddrUnix (toUnixPath addr2)
+        return $! makeProxyInfo sa sb (addrFamily sa) socketType
 
     toUnixPath = S.unpack . fst . S.break (=='\x00')
 

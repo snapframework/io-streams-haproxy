@@ -59,7 +59,16 @@ runInput :: ByteString
 runInput input sa sb action = do
     is <- Streams.fromList [input]
     (os, _) <- Streams.listOutputStream
-    HA.behindHAProxyWithAddresses (sa, sb, N.Stream) (is, os) action
+    let pinfo = HA.makeProxyInfo sa sb (addrFamily sa) N.Stream
+    HA.behindHAProxyWithLocalInfo pinfo (is, os) action
+
+
+------------------------------------------------------------------------------
+addrFamily :: N.SockAddr -> N.Family
+addrFamily s = case s of
+                 (N.SockAddrInet _ _)      -> N.AF_INET
+                 (N.SockAddrInet6 _ _ _ _) -> N.AF_INET6
+                 (N.SockAddrUnix _ )       -> N.AF_UNIX
 
 
 ------------------------------------------------------------------------------
