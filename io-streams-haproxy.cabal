@@ -38,7 +38,7 @@ library
                      transformers      >= 0.3 && < 0.5
   default-language:  Haskell2010
 
-  ghc-options:       -Wall -fhpc -fwarn-tabs -funbox-strict-fields -threaded
+  ghc-options:       -Wall -fwarn-tabs -funbox-strict-fields -threaded
                      -fno-warn-unused-do-bind
   ghc-prof-options:  -prof -auto-all
 
