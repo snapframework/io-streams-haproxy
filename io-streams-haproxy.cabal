@@ -27,6 +27,7 @@ library
   hs-source-dirs:    src
   ghc-prof-options:  -prof -auto-all
   exposed-modules:   System.IO.Streams.Network.HAProxy
+  other-modules:     System.IO.Streams.Network.Internal.Address
   c-sources:         cbits/byteorder.c
 
   build-depends:     base              >= 4.4 && < 4.8,
