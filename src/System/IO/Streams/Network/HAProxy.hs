@@ -1,9 +1,10 @@
 {-# LANGUAGE BangPatterns             #-}
 {-# LANGUAGE DeriveDataTypeable       #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE Trustworthy              #-}
 {-# LANGUAGE TupleSections            #-}
+{-# LANGUAGE CApiFFI                  #-}
+{-# LANGUAGE CPP                      #-}
 
 {-|
 
@@ -35,6 +36,8 @@ module System.IO.Streams.Network.HAProxy
   , getSocketType
   ) where
 
+#include "MachDeps.h"
+
 ------------------------------------------------------------------------------
 import           Control.Applicative                        ((<$>), (<|>))
 import           Control.Monad                              (void, when)
@@ -46,7 +49,9 @@ import           Data.ByteString.Char8                      (ByteString)
 import qualified Data.ByteString.Char8                      as S
 import qualified Data.ByteString.Unsafe                     as S
 import           Data.Word                                  (Word16, Word32, Word8)
-import           Foreign.C.Types                            (CUInt (..), CUShort (..))
+#if MIN_VERSION_base(4,7,0)
+import           Data.Word                                  (byteSwap16, byteSwap32)
+#endif
 import           Foreign.Ptr                                (castPtr)
 import           Foreign.Storable                           (peek)
 import qualified Network.Socket                             as N
@@ -323,14 +328,25 @@ parseNewHaProxy localProxyInfo = do
 
     toUnixPath = S.unpack . fst . S.break (=='\x00')
 
-foreign import ccall unsafe "iostreams_ntohs" c_ntohs :: CUShort -> CUShort
-foreign import ccall unsafe "iostreams_ntohl" c_ntohl :: CUInt -> CUInt
 
+#if WORDS_BIGENDIAN
 ntohs :: Word16 -> Word16
-ntohs = fromIntegral . c_ntohs . fromIntegral
+ntohs = id
 
 ntohl :: Word32 -> Word32
-ntohl = fromIntegral . c_ntohl . fromIntegral
+ntohl = id
+#elif MIN_VERSION_base(4,7,0)
+ntohs :: Word16 -> Word16
+ntohs = byteSwap16
+
+ntohl :: Word32 -> Word32
+ntohl = byteSwap32
+#else
+-- uint16_t ntohs(uint16_t netshort);
+foreign import capi unsafe "arpa/inet.h ntohs" ntohs :: Word16 -> Word16
+-- uint32_t ntohl(uint32_t netlong);
+foreign import capi unsafe "arpa/inet.h ntohl" ntohl :: Word32 -> Word32
+#endif
 
 snarf32 :: Parser Word32
 snarf32 = do
