@@ -17,8 +17,7 @@ copyright:           (c) 2014 Google, Inc. and CONTRIBUTORS
 category:            Network, IO-Streams
 build-type:          Simple
 extra-source-files:
-  CONTRIBUTORS,
-  cbits/byteorder.c
+  CONTRIBUTORS
 
 cabal-version:       >=1.10
 Bug-Reports:         https://github.com/snapframework/io-streams-haproxy/issues
@@ -28,9 +27,8 @@ library
   ghc-prof-options:  -prof -auto-all
   exposed-modules:   System.IO.Streams.Network.HAProxy
   other-modules:     System.IO.Streams.Network.Internal.Address
-  c-sources:         cbits/byteorder.c
 
-  build-depends:     base              >= 4.4 && < 4.8,
+  build-depends:     base              >= 4.5 && < 4.8,
                      attoparsec        >= 0.7 && < 0.13,
                      bytestring        >= 0.9 && < 0.11,
                      io-streams        >= 1.1 && < 1.3,
@@ -47,7 +45,6 @@ test-suite testsuite
   hs-source-dirs:    src test
   Main-is:           TestSuite.hs
   Default-language:  Haskell2010
-  c-sources:         cbits/byteorder.c
 
   ghc-options:       -Wall -fhpc -fwarn-tabs -funbox-strict-fields -threaded
                      -fno-warn-unused-do-bind
@@ -56,7 +53,7 @@ test-suite testsuite
   Other-modules:     System.IO.Streams.Network.HAProxy,
                      System.IO.Streams.Network.HAProxy.Tests
 
-  build-depends:     base              >= 4.4 && < 4.8,
+  build-depends:     base              >= 4.5 && < 4.8,
                      attoparsec        >= 0.7 && < 0.13,
                      bytestring        >= 0.9 && < 0.11,
                      io-streams        >= 1.1 && < 1.3,
