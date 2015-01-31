@@ -119,10 +119,10 @@ blackbox action input = withTimeout 10 $ do
         loop = forever $
                E.bracketOnError (restore $ N.accept boundSocket)
                                 (N.close . fst)
-                                (\(sock, _) ->
+                                (\(sock, sa) ->
                                    forkIOWithUnmask
                                      $ \r -> flip E.finally (N.close sock)
-                                       $ r $ HA.behindHAProxy sock (action chan))
+                                       $ r $ HA.behindHAProxy sock sa (action chan))
 
 
 ------------------------------------------------------------------------------

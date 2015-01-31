@@ -61,9 +61,8 @@ import           System.IO.Unsafe                           (unsafePerformIO)
 
 ------------------------------------------------------------------------------
 -- | Make a 'ProxyInfo' from a connected socket.
-socketToProxyInfo :: N.Socket -> IO ProxyInfo
-socketToProxyInfo s = do
-    sa <- N.getPeerName s
+socketToProxyInfo :: N.Socket -> N.SockAddr -> IO ProxyInfo
+socketToProxyInfo s sa = do
     da <- N.getSocketName s
     let (N.MkSocket _ _ !sty _ _) = s
     return $! makeProxyInfo sa da (addrFamily sa) sty
@@ -79,13 +78,14 @@ socketToProxyInfo s = do
 -- supported.
 --
 behindHAProxy :: N.Socket         -- ^ A socket you've just accepted
+              -> N.SockAddr       -- ^ and its peer address
               -> (ProxyInfo
                   -> InputStream ByteString
                   -> OutputStream ByteString
                   -> IO a)
               -> IO a
-behindHAProxy socket m = do
-    pinfo    <- socketToProxyInfo socket
+behindHAProxy socket sa m = do
+    pinfo    <- socketToProxyInfo socket sa
     sockets  <- Streams.socketToStreams socket
     behindHAProxyWithLocalInfo pinfo sockets m
 
