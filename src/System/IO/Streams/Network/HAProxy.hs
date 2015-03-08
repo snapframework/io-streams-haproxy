@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns             #-}
+{-# LANGUAGE CPP                      #-}
 {-# LANGUAGE DeriveDataTypeable       #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings        #-}
@@ -250,7 +251,9 @@ parseNewHaProxy localProxyInfo = do
                 -> handleLocal addressLen
            | family == 0x1 -> handleIPv4 addressLen socketType
            | family == 0x2 -> handleIPv6 addressLen socketType
+#ifndef WINDOWS
            | family == 0x3 -> handleUnix addressLen socketType
+#endif
            | otherwise     -> fail $ "Bad family " ++ show family
 
   where
@@ -309,7 +312,7 @@ parseNewHaProxy localProxyInfo = do
         let sb = N.SockAddrInet6 (N.PortNum dp) flow (d1, d2, d3, d4) scopeId
 
         return $! makeProxyInfo sa sb (addrFamily sa) socketType
-
+#ifndef WINDOWS
     handleUnix addressLen socketType = do
         when (addressLen < 216) $ fail $ "bad address length "
                                          ++ show addressLen
@@ -322,6 +325,7 @@ parseNewHaProxy localProxyInfo = do
         return $! makeProxyInfo sa sb (addrFamily sa) socketType
 
     toUnixPath = S.unpack . fst . S.break (=='\x00')
+#endif
 
 foreign import ccall unsafe "iostreams_ntohs" c_ntohs :: CUShort -> CUShort
 foreign import ccall unsafe "iostreams_ntohl" c_ntohl :: CUInt -> CUInt
@@ -347,4 +351,8 @@ addrFamily :: N.SockAddr -> N.Family
 addrFamily s = case s of
                  (N.SockAddrInet _ _)      -> N.AF_INET
                  (N.SockAddrInet6 _ _ _ _) -> N.AF_INET6
+#ifdef WINDOWS
+                 _                         -> error "unknown family"
+#else
                  (N.SockAddrUnix _ )       -> N.AF_UNIX
+#endif

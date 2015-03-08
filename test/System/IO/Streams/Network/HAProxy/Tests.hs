@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -39,7 +40,9 @@ tests = [ testOldHaProxy
         , testBlackBox
         , testBlackBoxLocal
         , testNewHaProxy
+#ifndef WINDOWS
         , testNewHaProxyUnix
+#endif
         , testNewHaProxy6
         , testNewHaProxyTooBig
         , testNewHaProxyTooSmall
@@ -68,8 +71,9 @@ addrFamily :: N.SockAddr -> N.Family
 addrFamily s = case s of
                  (N.SockAddrInet _ _)      -> N.AF_INET
                  (N.SockAddrInet6 _ _ _ _) -> N.AF_INET6
+#ifndef WINDOWS
                  (N.SockAddrUnix _ )       -> N.AF_UNIX
-
+#endif
 
 ------------------------------------------------------------------------------
 blackbox :: (Chan Bool
@@ -301,6 +305,7 @@ testNewHaProxy = testCase "test/new_ha_proxy" $ do
 
 
 ------------------------------------------------------------------------------
+#ifndef WINDOWS
 unixPath :: ByteString -> ByteString
 unixPath s = S.append s (S.replicate (108 - S.length s) '\x00')
 
@@ -350,6 +355,7 @@ testNewHaProxyUnix = testCase "test/new_ha_proxy_unix" $ do
         assertEqual "family" N.AF_UNIX $ HA.getFamily proxyInfo
         assertEqual "stype" N.Datagram $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
+#endif
 
 ------------------------------------------------------------------------------
 testNewHaProxy6 :: Test
@@ -451,7 +457,7 @@ testNewHaProxyTooSmall = testCase "test/new_ha_proxy_too_small" $ do
                           , "blah"     -- the rest
                           ]
     expectException "too small" $ runInput input2 sa sb action
-
+#ifndef WINDOWS
     let input3 = S.concat [ protocolHeader
                           , "\x21\x31"    -- unix
                           , "\x00\x02"        -- 2 bytes
@@ -459,6 +465,7 @@ testNewHaProxyTooSmall = testCase "test/new_ha_proxy_too_small" $ do
                           , "blah"     -- the rest
                           ]
     expectException "too small" $ runInput input3 sa sb action
+#endif
   where
     action _ !_ !_ = return ()
 
@@ -512,6 +519,7 @@ testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
                          ]
     runInput input sa sb action
 
+#ifndef WINDOWS
     let ua = unixSock "/foo"
     let ub = unixSock "/bar"
 
@@ -521,6 +529,7 @@ testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
                           , "blah"     -- the rest
                           ]
     runInput input2 ua ub action2
+#endif
   where
     action proxyInfo !is !_ = do
         sa <- localhost 1111
@@ -531,6 +540,7 @@ testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
         assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
 
+#ifndef WINDOWS
     action2 proxyInfo !is !_ = do
         let sa = unixSock "/foo"
         let sb = unixSock "/bar"
@@ -539,6 +549,8 @@ testNewHaProxyLocal = testCase "test/new_ha_proxy_local" $ do
         assertEqual "family" N.AF_UNIX $ HA.getFamily proxyInfo
         assertEqual "stype" N.Stream $ HA.getSocketType proxyInfo
         Streams.toList is >>= assertEqual "rest" ["blah"]
+#endif
+
 
 ------------------------------------------------------------------------------
 testGetSockAddr :: Test
