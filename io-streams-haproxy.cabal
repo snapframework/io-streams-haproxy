@@ -18,6 +18,7 @@ category:            Network, IO-Streams
 build-type:          Configure
 extra-source-files:  CONTRIBUTORS,
                      cbits/byteorder.c,
+                     include/HsIoStreamsHaProxyConfig.h.in,
                      README.md,
                      configure.ac,
                      configure
