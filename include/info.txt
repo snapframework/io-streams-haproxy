@@ -1,0 +1,3 @@
+The configure script will produce a config file here:
+
+`HsIoStreamsHaProxyConfig.h` 
