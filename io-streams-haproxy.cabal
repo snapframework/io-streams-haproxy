@@ -31,7 +31,7 @@ library
   c-sources:         cbits/byteorder.c
 
   build-depends:     base              >= 4.4 && < 4.9,
-                     attoparsec        >= 0.7 && < 0.13,
+                     attoparsec        >= 0.7 && < 0.14,
                      bytestring        >= 0.9 && < 0.11,
                      io-streams        >= 1.3 && < 1.4,
                      network           >= 2.3 && < 2.7,
@@ -57,7 +57,7 @@ test-suite testsuite
                      System.IO.Streams.Network.HAProxy.Tests
 
   build-depends:     base              >= 4.4 && < 4.9,
-                     attoparsec        >= 0.7 && < 0.13,
+                     attoparsec        >= 0.7 && < 0.14,
                      bytestring        >= 0.9 && < 0.11,
                      io-streams        >= 1.3 && < 1.4,
                      network           >= 2.3 && < 2.7,
