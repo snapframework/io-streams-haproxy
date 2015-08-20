@@ -37,7 +37,7 @@ module System.IO.Streams.Network.HAProxy
   ) where
 
 ------------------------------------------------------------------------------
-import           Control.Applicative                        ((<$>), (<|>))
+import           Control.Applicative                        ((<|>))
 import           Control.Monad                              (void, when)
 import           Data.Attoparsec.ByteString                 (anyWord8)
 import           Data.Attoparsec.ByteString.Char8           (Parser, char, decimal, skipWhile, string, take, takeWhile1)
@@ -57,6 +57,10 @@ import qualified System.IO.Streams                          as Streams
 import qualified System.IO.Streams.Attoparsec               as Streams
 import           System.IO.Streams.Network.Internal.Address (getSockAddr)
 import           System.IO.Unsafe                           (unsafePerformIO)
+
+#if !MIN_VERSION_base(4,8,0)
+import           Control.Applicative                        ((<$>))
+#endif
 ------------------------------------------------------------------------------
 
 
