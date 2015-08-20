@@ -359,4 +359,5 @@ addrFamily s = case s of
                  _                         -> error "unknown family"
 #else
                  (N.SockAddrUnix _ )       -> N.AF_UNIX
+                 _                         -> error "unknown family"
 #endif
