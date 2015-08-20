@@ -281,8 +281,8 @@ parseNewHaProxy localProxyInfo = do
         void $ take $ fromIntegral nskip
 
         -- Note: we actually want the brain-dead constructors here
-        let sa = N.SockAddrInet (N.PortNum srcPort) srcAddr
-        let sb = N.SockAddrInet (N.PortNum destPort) destAddr
+        let sa = N.SockAddrInet (fromIntegral srcPort) srcAddr
+        let sb = N.SockAddrInet (fromIntegral destPort) destAddr
         return $! makeProxyInfo sa sb (addrFamily sa) socketType
 
     handleIPv6 addressLen socketType = do
@@ -308,8 +308,8 @@ parseNewHaProxy localProxyInfo = do
 
         void $ take $ fromIntegral nskip
 
-        let sa = N.SockAddrInet6 (N.PortNum sp) flow (s1, s2, s3, s4) scopeId
-        let sb = N.SockAddrInet6 (N.PortNum dp) flow (d1, d2, d3, d4) scopeId
+        let sa = N.SockAddrInet6 (fromIntegral sp) flow (s1, s2, s3, s4) scopeId
+        let sb = N.SockAddrInet6 (fromIntegral dp) flow (d1, d2, d3, d4) scopeId
 
         return $! makeProxyInfo sa sb (addrFamily sa) socketType
 #ifndef WINDOWS
