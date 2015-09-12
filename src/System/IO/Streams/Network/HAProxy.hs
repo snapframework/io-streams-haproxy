@@ -280,8 +280,8 @@ parseNewHaProxy localProxyInfo = do
         let nskip = addressLen - 12
         srcAddr  <- snarf32
         destAddr <- snarf32
-        srcPort  <- snarf16
-        destPort <- snarf16
+        srcPort  <- ntohs <$> snarf16
+        destPort <- ntohs <$> snarf16
         void $ take $ fromIntegral nskip
 
         -- Note: we actually want the brain-dead constructors here
@@ -307,8 +307,8 @@ parseNewHaProxy localProxyInfo = do
         d3 <- ntohl <$> snarf32
         d4 <- ntohl <$> snarf32
 
-        sp <- snarf16
-        dp <- snarf16
+        sp <- ntohs <$> snarf16
+        dp <- ntohs <$> snarf16
 
         void $ take $ fromIntegral nskip
 
@@ -355,9 +355,7 @@ addrFamily :: N.SockAddr -> N.Family
 addrFamily s = case s of
                  (N.SockAddrInet _ _)      -> N.AF_INET
                  (N.SockAddrInet6 _ _ _ _) -> N.AF_INET6
-#ifdef WINDOWS
-                 _                         -> error "unknown family"
-#else
+#ifndef WINDOWS
                  (N.SockAddrUnix _ )       -> N.AF_UNIX
-                 _                         -> error "unknown family"
 #endif
+                 _                         -> error "unknown family"
