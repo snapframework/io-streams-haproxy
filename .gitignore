@@ -16,3 +16,9 @@ tmp/
 docs/templates/out
 .cabal-sandbox/
 cabal.sandbox.config
+autom4te.cache/*
+config.log
+config.mk
+config.status
+include/HsIoStreamsHaProxyConfig.h
+include/HsIoStreamsHaProxyConfig.h.in

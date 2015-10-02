@@ -1,2 +1,3 @@
 import Distribution.Simple
-main = defaultMain
+main :: IO ()
+main = defaultMainWithHooks autoconfUserHooks
