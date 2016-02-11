@@ -45,6 +45,9 @@ library
 
   ghc-options:       -Wall -fwarn-tabs -funbox-strict-fields
                      -fno-warn-unused-do-bind
+  if os(windows)
+    cpp-options:     -DWINDOWS
+    cc-options:      -DWINDOWS
 
 test-suite testsuite
   type:              exitcode-stdio-1.0
@@ -70,3 +73,6 @@ test-suite testsuite
                      HUnit                      >= 1.2      && <2,
                      test-framework             >= 0.8.0.3  && <0.9,
                      test-framework-hunit       >= 0.2.7    && <0.4
+  if os(windows)
+    cpp-options:     -DWINDOWS
+    cc-options:      -DWINDOWS

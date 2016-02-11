@@ -2,7 +2,12 @@
    implemented as macros only, so I have to re-export functions here to do the
    conversions. */
 
-#include <arpa/inet.h>
+#if defined(WINDOWS)
+#  include <winsock2.h>
+#  include <inttypes.h>
+#else
+#  include <arpa/inet.h>
+#endif
 
 uint32_t iostreams_htonl(uint32_t hostlong) {
     return htonl(hostlong);
