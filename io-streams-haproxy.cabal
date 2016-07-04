@@ -22,11 +22,15 @@ extra-source-files:
 
 cabal-version:       >=1.10
 Bug-Reports:         https://github.com/snapframework/io-streams-haproxy/issues
-Tested-With:         GHC == 7.4.2, GHC == 7.6.3, GHC == 7.8.4, GHC == 7.10.3, GHC == 8.0.1
+Tested-With:         GHC == 7.4.2, GHC == 7.6.3, GHC == 7.8.4, GHC == 7.10.3,
+                     GHC == 8.0.1
+
+source-repository head
+  type:     git
+  location: https://github.com/snapframework/io-streams-haproxy.git
 
 library
   hs-source-dirs:    src
-  ghc-prof-options:  -prof -auto-all
   exposed-modules:   System.IO.Streams.Network.HAProxy
   other-modules:     System.IO.Streams.Network.Internal.Address
   c-sources:         cbits/byteorder.c
@@ -39,9 +43,9 @@ library
                      transformers      >= 0.3 && < 0.6
   default-language:  Haskell2010
 
-  ghc-options:       -Wall -fwarn-tabs -funbox-strict-fields -threaded
+  ghc-options:       -Wall -fwarn-tabs -funbox-strict-fields
                      -fno-warn-unused-do-bind
-  ghc-prof-options:  -prof -auto-all
+  ghc-prof-options:  -auto-all
 
 test-suite testsuite
   type:              exitcode-stdio-1.0
@@ -52,18 +56,18 @@ test-suite testsuite
 
   ghc-options:       -Wall -fhpc -fwarn-tabs -funbox-strict-fields -threaded
                      -fno-warn-unused-do-bind
-  ghc-prof-options:  -prof -auto-all
+  ghc-prof-options:  -auto-all
 
   Other-modules:     System.IO.Streams.Network.HAProxy,
                      System.IO.Streams.Network.HAProxy.Tests,
                      System.IO.Streams.Network.Internal.Address
 
-  build-depends:     base              >= 4.4 && < 4.10,
-                     attoparsec        >= 0.7 && < 0.14,
-                     bytestring        >= 0.9 && < 0.11,
-                     io-streams        >= 1.3 && < 1.4,
-                     network           >= 2.3 && < 2.7,
-                     transformers      >= 0.3 && < 0.6,
+  build-depends:     base,
+                     attoparsec,
+                     bytestring,
+                     io-streams,
+                     network,
+                     transformers,
                      ------------------------------
                      HUnit                      >= 1.2      && <2,
                      test-framework             >= 0.8.0.3  && <0.9,
