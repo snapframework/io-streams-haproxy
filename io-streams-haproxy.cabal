@@ -45,7 +45,6 @@ library
 
   ghc-options:       -Wall -fwarn-tabs -funbox-strict-fields
                      -fno-warn-unused-do-bind
-  ghc-prof-options:  -auto-all
 
 test-suite testsuite
   type:              exitcode-stdio-1.0
@@ -56,7 +55,6 @@ test-suite testsuite
 
   ghc-options:       -Wall -fhpc -fwarn-tabs -funbox-strict-fields -threaded
                      -fno-warn-unused-do-bind
-  ghc-prof-options:  -auto-all
 
   Other-modules:     System.IO.Streams.Network.HAProxy,
                      System.IO.Streams.Network.HAProxy.Tests,
