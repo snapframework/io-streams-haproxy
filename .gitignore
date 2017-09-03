@@ -1,4 +1,6 @@
 *~
+cabal.project.local
+dist-newstyle/
 TAGS
 cabal-dev
 dist/
