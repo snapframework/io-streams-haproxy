@@ -69,9 +69,21 @@ import           Control.Applicative                        ((<$>))
 socketToProxyInfo :: N.Socket -> N.SockAddr -> IO ProxyInfo
 socketToProxyInfo s sa = do
     da <- N.getSocketName s
-    let (N.MkSocket _ _ !sty _ _) = s
+    !sty <- getSockType
     return $! makeProxyInfo sa da (addrFamily sa) sty
-
+  where
+#if MIN_VERSION_network(2,7,0)
+    getSockType = do
+        c <- N.getSocketOption s N.Type
+        -- This is a kludge until network has better support for returning
+        -- SocketType
+        case c of
+          1 -> return N.Stream
+          2 -> return N.Datagram
+          _ -> error ("bad socket type: " ++ show c)
+#else
+    getSockType = let (N.MkSocket _ _ sty _ _) = s in return sty
+#endif
 
 ------------------------------------------------------------------------------
 -- | Parses the proxy headers emitted by HAProxy and runs a user action with

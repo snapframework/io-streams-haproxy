@@ -103,12 +103,24 @@ blackbox action input = withTimeout 10 $ do
     startServer :: Chan Bool -> IO (ThreadId, Int)
     startServer = E.bracketOnError getSock N.close . forkServer
 
+    getBindAddr = do
+#if MIN_VERSION_network(2,7,0)
+        getSockAddr (fromIntegral N.defaultPort) "127.0.0.1"
+#else
+        getSockAddr (fromIntegral N.aNY_PORT) "127.0.0.1"
+#endif
+
     getSock = do
-        (family, addr) <- getSockAddr (fromIntegral N.aNY_PORT) "127.0.0.1"
+        (family, addr) <- getBindAddr
         sock           <- N.socket family N.Stream 0
         N.setSocketOption sock N.ReuseAddr 1
         N.setSocketOption sock N.NoDelay 1
+
+#if MIN_VERSION_network(2,7,0)
+        N.bind sock addr
+#else
         N.bindSocket sock addr
+#endif
         N.listen sock 150
         return $! sock
 
@@ -579,7 +591,7 @@ testTrivials = testCase "test/trivials" $ do
 
 ------------------------------------------------------------------------------
 localhost :: Int -> IO (N.SockAddr)
-localhost p = N.SockAddrInet (fromIntegral p) <$> N.inet_addr "127.0.0.1"
+localhost p = snd <$> getSockAddr p "127.0.0.1"
 
 
 ------------------------------------------------------------------------------
