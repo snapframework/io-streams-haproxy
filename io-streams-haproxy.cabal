@@ -1,6 +1,5 @@
 name:                io-streams-haproxy
 version:             1.0.1.0
-x-revision:          6
 synopsis:            HAProxy protocol 1.5 support for io-streams
 
 description: HAProxy protocol version 1.5 support (see
