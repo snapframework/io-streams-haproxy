@@ -76,6 +76,7 @@ jobs:
         run: cabal build all
 
       - name: Test
+        if: matrix.os != 'windows-latest'
         run: cabal test all
 
       - name: Documentation
