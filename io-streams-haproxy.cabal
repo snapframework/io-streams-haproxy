@@ -1,3 +1,4 @@
+cabal-version:       2.2
 name:                io-streams-haproxy
 version:             1.0.1.0
 synopsis:            HAProxy protocol 1.5 support for io-streams
@@ -9,7 +10,7 @@ description: HAProxy protocol version 1.5 support (see
   proxy that is configured to speak this protocol.
 
 homepage:            http://snapframework.com/
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Gregory Collins
 maintainer:          greg@gregorycollins.net
@@ -20,7 +21,9 @@ extra-source-files:
   CONTRIBUTORS,
   cbits/byteorder.c
 
-cabal-version:       >=1.10
+extra-doc-files:
+  changelog.md
+
 Bug-Reports:         https://github.com/snapframework/io-streams-haproxy/issues
 
 tested-with:
